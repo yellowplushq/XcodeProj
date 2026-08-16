@@ -5,9 +5,22 @@ import PathKit
 
 // MARK: - Path extras.
 
+// Selected by which C library module is actually available rather than by
+// the platform: a musl target is Linux too, and there the module is `Musl`,
+// not `Glibc`.
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Musl)
+    import Musl
+#else
+    import Glibc
+#endif
+
 func systemGlob(_ pattern: UnsafePointer<CChar>!, _ flags: Int32, _ errfunc: (@convention(c) (UnsafePointer<CChar>?, Int32) -> Int32)!, _ vector_ptr: UnsafeMutablePointer<glob_t>!) -> Int32 {
-    #if os(macOS) || os(iOS)
+    #if canImport(Darwin)
         return Darwin.glob(pattern, flags, errfunc, vector_ptr)
+    #elseif canImport(Musl)
+        return Musl.glob(pattern, flags, errfunc, vector_ptr)
     #else
         return Glibc.glob(pattern, flags, errfunc, vector_ptr)
     #endif
@@ -35,9 +48,15 @@ extension Path {
             free(cPattern)
         }
 
-        let flags = GLOB_TILDE | GLOB_BRACE | GLOB_MARK
+        // GLOB_BRACE is a GNU extension that musl does not implement, so brace
+        // expansion is unavailable there; the rest of the pattern still globs.
+        #if canImport(Musl)
+            let flags = GLOB_TILDE | GLOB_MARK
+        #else
+            let flags = GLOB_TILDE | GLOB_BRACE | GLOB_MARK
+        #endif
         if systemGlob(cPattern, flags, nil, &gt) == 0 {
-            #if os(macOS)
+            #if canImport(Darwin)
                 let matchc = gt.gl_matchc
             #else
                 let matchc = gt.gl_pathc
